@@ -146,8 +146,8 @@ nodes:
       IMAGE_HEIGHT: 720
       IMAGE_WIDTH: 2560
     outputs:
-      - split_0
-      - split_1
+      - image_0
+      - image_1
 
   - id: camera-ceiling
     build: pip install opencv-video-capture
@@ -181,6 +181,6 @@ nodes:
       arm_left_action: leader/left_follower_position
       arm_left_observation: follower-left/position
       camera_wrist_left: camera-wrist-left/image
-      camera_head_left: camera-head-stereo-splitter/split_0
-      camera_head_right: camera-head-stereo-splitter/split_1
+      camera_head_left: camera-head-stereo-splitter/image_0
+      camera_head_right: camera-head-stereo-splitter/image_1
       camera_ceiling: camera-ceiling/image

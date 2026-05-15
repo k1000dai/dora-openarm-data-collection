@@ -29,4 +29,5 @@ equipment:
       wrist_left: {}
       wrist_right: {}
       ceiling: {}
-      head: {}
+      head_right: {}
+      head_left: {}

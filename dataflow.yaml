@@ -52,7 +52,7 @@ nodes:
     # build: pip install dora-openarm-ker
     path: dora-openarm-ker
     # Please configure!
-    args: "--device /dev/ker --config /path/to/mapping.yaml"
+    args: "--device /dev/ker --config ./nodes/dora-openarm-ker/config/mapping.yaml"
     inputs:
       tick: quittable-tick-leader/tick
     outputs:

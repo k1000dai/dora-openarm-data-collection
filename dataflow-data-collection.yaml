@@ -1,3 +1,17 @@
+# Copyright 2026 Enactic, Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 nodes:
   - id: ui
     build: pip install -e nodes/dora-openarm-data-collection-ui
@@ -26,7 +40,6 @@ nodes:
     outputs:
       - tick
 
- 
   - id: quittable-tick-leader
     build: pip install -e nodes/dora-openarm-quitter
     path: dora-openarm-quitter
@@ -88,11 +101,11 @@ nodes:
     path: dora-openarm-mujoco
     args: "--keyframe home --viewer --debug-frames"
     inputs:
-      position_left:  ik/position_left
+      position_left: ik/position_left
       position_right: ik/position_right
-      pose_right:     udp-receiver/pose_right
-      pose_left:      udp-receiver/pose_left
-      joystick_y:     udp-receiver/joystick_y
+      pose_right: udp-receiver/pose_right
+      pose_left: udp-receiver/pose_left
+      joystick_y: udp-receiver/joystick_y
     outputs:
       - status
 
@@ -171,7 +184,6 @@ nodes:
       IMAGE_HEIGHT: 720
       IMAGE_WIDTH: 2560
     inputs:
-      tick: quittable-tick-camera/tick
       image: camera-head-stereo/image
     outputs:
       - image_0

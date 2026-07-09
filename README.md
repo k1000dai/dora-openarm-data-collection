@@ -14,6 +14,22 @@ TODO
 
 [`dataflow_dummy.yaml`](dataflow_dummy.yaml) is a configuration that doesn't use real OpenArm. We can use this for testing a dataflow without real OpenArm.
 
+### VR teleoperation (OpenArm v1, MuJoCo)
+
+[`dataflow-vr-v1-mujoco.yaml`](dataflow-vr-v1-mujoco.yaml) is a teleoperation-only
+configuration (no recorder or cameras) that drives the **OpenArm v1** model in
+MuJoCo from Meta Quest controllers: VR → IK → MuJoCo viewer.
+
+The v1 MuJoCo assets are vendored under [`models/openarm_mujoco_v1/`](models/openarm_mujoco_v1)
+(patched with `*_ee_control_point` sites and a `home` keyframe). The binary mesh
+tree is not committed — fetch it once before running:
+
+```bash
+models/openarm_mujoco_v1/fetch_v1_model.sh
+dora build dataflow-vr-v1-mujoco.yaml
+dora run dataflow-vr-v1-mujoco.yaml
+```
+
 ## License
 
 Licensed under the Apache License 2.0. See [LICENSE](LICENSE) for details.

@@ -14,3 +14,10 @@
 
 /dataset/
 /out/
+
+# Fetched via models/openarm_mujoco_v1/fetch_v1_model.sh (large binary meshes,
+# not committed). The patched MJCF files are committed.
+/models/openarm_mujoco_v1/meshes/
+
+# MuJoCo runtime log
+MUJOCO_LOG.TXT

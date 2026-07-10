@@ -30,10 +30,15 @@ nodes:
     outputs:
       - tick
 
+  # VR calibration defaults are tuned for v2 (ee_control_point site = identity
+  # orientation, base ~0.9m). The v1 ee_control_point sites are flipped 180° about
+  # X (they follow the hand_tcp body), and the v1 base sits lower, so without these
+  # overrides the neutral target lands ~0.5m off and contorts the arms.
+  # These values are sim-derived starting points (neutral reach err ~0.04m): tune live.
   - id: udp-receiver
     build: pip install -e nodes/dora-openarm-vr
     path: dora-openarm-quest-receiver
-    args: "--host 0.0.0.0 --port 5006"
+    args: "--host 0.0.0.0 --port 5006 --ee-correction-deg 180 0 0 --frame-offset 0.0 0 0.6"
     inputs:
       tick: quittable-tick-leader/tick
     outputs:

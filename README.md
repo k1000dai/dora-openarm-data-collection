@@ -63,6 +63,18 @@ dora run dataflow-vr-v1.yaml
 > direction (a model/hardware sign flip looks fine in sim but reversed on
 > hardware; see the config header).
 
+Before the first hardware run, you can read joint positions directly over CAN to
+check the 0-pose and per-joint sign, using
+[`dev/verify_v1_can.py`](dev/verify_v1_can.py) (built on the
+[`openarm_can`](https://github.com/enactic/openarm_can) library — the same
+interface as `openarm-can-demo`). It only reads (motors left backdrivable), so
+you can hand-move each joint and watch the printed values:
+
+```bash
+pip install openarm_can  # or build from enactic/openarm_can
+python dev/verify_v1_can.py --side right   # then --side left
+```
+
 ## License
 
 Licensed under the Apache License 2.0. See [LICENSE](LICENSE) for details.

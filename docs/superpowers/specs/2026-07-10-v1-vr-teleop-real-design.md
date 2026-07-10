@@ -252,7 +252,10 @@ motor↔joint mapping and the aligned v1 0-pose. The steps below are safety chec
 not a measure-everything procedure:
 
 1. CAN up (`can0`/`can1`, standard OpenArm motor zeroing), arms powered,
-   workspace clear, e-stop reachable.
+   workspace clear, e-stop reachable. Optionally read joint positions directly
+   over CAN with `dev/verify_v1_can.py` (built on the `openarm_can` library) to
+   confirm the 0-pose and per-joint sign before running the dataflow — it only
+   reads, motors left backdrivable, so you can hand-move each joint.
 2. `dora run dataflow-vr-v1.yaml`. **Squeeze a trigger** to arm the alignment
    ramp (the interlock blocks alignment until you do). Arms ramp (step-limited)
    toward the commanded neutral. Confirm each joint moves the **right

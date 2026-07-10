@@ -12,18 +12,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-/dataset/
-/out/
-
-# Fetched via models/openarm_mujoco_v1/fetch_v1_model.sh (large binary meshes,
-# not committed). The patched MJCF files are committed.
-/models/openarm_mujoco_v1/meshes/
-
-# MuJoCo runtime log
-MUJOCO_LOG.TXT
-
-# Python caches
-__pycache__/
-*.py[cod]
-.pytest_cache/
-.ruff_cache/
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.14.11
+    hooks:
+      - id: ruff-check
+        args:
+          - --fix
+      - id: ruff-format
+  - repo: https://github.com/scop/pre-commit-shfmt
+    rev: v3.12.0-2
+    hooks:
+      - id: shfmt

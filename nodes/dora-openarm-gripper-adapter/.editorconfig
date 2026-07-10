@@ -12,18 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-/dataset/
-/out/
+root = true
 
-# Fetched via models/openarm_mujoco_v1/fetch_v1_model.sh (large binary meshes,
-# not committed). The patched MJCF files are committed.
-/models/openarm_mujoco_v1/meshes/
+[*.sh]
 
-# MuJoCo runtime log
-MUJOCO_LOG.TXT
-
-# Python caches
-__pycache__/
-*.py[cod]
-.pytest_cache/
-.ruff_cache/
+indent_style = space
+indent_size = 2
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true

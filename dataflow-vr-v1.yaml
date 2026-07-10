@@ -1,0 +1,145 @@
+# Copyright 2026 Enactic, Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# VR teleoperation of the real OpenArm **v1** robot (teleop only — no recorder,
+# cameras, or dataset). A MuJoCo viewer is kept alongside as a live digital twin.
+#
+# The v1 MuJoCo assets are vendored under models/openarm_mujoco_v1/. The mesh
+# tree is not committed; run models/openarm_mujoco_v1/fetch_v1_model.sh once
+# before the first `dora run`.
+#
+# Before trusting hardware motion, calibrate configs/openarm_v1.yaml (joint
+# offsets) and the gripper-adapter open radians — see the config header.
+#
+#   VR --UDP--> udp-receiver --poses/triggers--> ik --position (m)--> gripper-adapter --position (rad)--> followers (real)
+#                                                     `--position (m)--> mujoco-viewer (twin)
+#
+# Safety: the followers start STOPPED; the UI auto-starts them on boot. The
+# `--align-trigger gripper` interlock holds the alignment ramp until you SQUEEZE
+# a trigger ("squeeze to align", identical to v2).
+
+nodes:
+  - id: ui
+    build: pip install -e nodes/dora-openarm-data-collection-ui
+    path: dora-openarm-data-collection-ui
+    env:
+      METADATA_FILE: "metadata_v1.yaml"
+    inputs:
+      tick: dora/timer/secs/1
+      button_a:
+        source: udp-receiver/button_a
+        queue_size: 100
+      button_b:
+        source: udp-receiver/button_b
+        queue_size: 100
+      arm_status_right:
+        source: follower-right/status
+      arm_status_left:
+        source: follower-left/status
+    outputs:
+      - command
+      - arm_command
+
+  - id: quittable-tick-leader
+    build: pip install -e nodes/dora-openarm-quitter
+    path: dora-openarm-quitter
+    inputs:
+      command: ui/command
+      tick: dora/timer/millis/2
+    outputs:
+      - tick
+
+  # VR calibration defaults are tuned for v1 (see dataflow-vr-v1-mujoco.yaml):
+  # the v1 ee_control_point sites are flipped 180 deg about X and the v1 base
+  # sits lower, so these overrides land the neutral target correctly.
+  - id: udp-receiver
+    build: pip install -e nodes/dora-openarm-vr
+    path: dora-openarm-quest-receiver
+    args: "--host 0.0.0.0 --port 5006 --ee-correction-deg 180 0 0 --frame-offset 0.0 0 0.6"
+    inputs:
+      tick: quittable-tick-leader/tick
+    outputs:
+      - pose_right
+      - trigger_right
+      - pose_left
+      - trigger_left
+      - joystick_y
+      - button_a
+      - button_b
+      - status
+
+  - id: ik
+    build: pip install -e nodes/dora-openarm-kinematics
+    path: dora-openarm-ik
+    args: "--xml models/openarm_mujoco_v1/scene.xml --keyframe home --mode bimanual --max-iters 10 --dt 0.1 --damping 0.1 --posture-cost 0.01 --lm-damping 0.01"
+    inputs:
+      tick: quittable-tick-leader/tick
+      target_right: udp-receiver/pose_right
+      target_left: udp-receiver/pose_left
+      trigger_right: udp-receiver/trigger_right
+      trigger_left: udp-receiver/trigger_left
+    outputs:
+      - position_left
+      - position_right
+      - status
+
+  # Rescale the gripper element from v1 model meters to gripper-motor radians
+  # (v2 convention) for the real followers. Arm joints 1-7 pass through. The
+  # viewer still reads ik/position_* directly (meters — faithful prismatic twin).
+  - id: gripper-adapter
+    build: pip install -e nodes/dora-openarm-gripper-adapter
+    path: dora-openarm-gripper-adapter
+    args: "--in-open 0.044 --out-open-right -0.785 --out-open-left 0.785"
+    inputs:
+      position_right: ik/position_right
+      position_left: ik/position_left
+    outputs:
+      - position_right
+      - position_left
+
+  - id: follower-right
+    build: pip install -e nodes/dora-openarm
+    path: dora-openarm
+    args: "--side right --align-trigger gripper --config configs/openarm_v1.yaml"
+    inputs:
+      move_position: gripper-adapter/position_right
+      command: ui/arm_command
+    outputs:
+      - state
+      - status
+
+  - id: follower-left
+    build: pip install -e nodes/dora-openarm
+    path: dora-openarm
+    args: "--side left --align-trigger gripper --config configs/openarm_v1.yaml"
+    inputs:
+      move_position: gripper-adapter/position_left
+      command: ui/arm_command
+    outputs:
+      - state
+      - status
+
+  # ── MuJoCo viewer for the v1 robot (live digital twin of the command) ──
+  - id: mujoco-viewer
+    build: pip install -e nodes/dora-openarm-mujoco
+    path: dora-openarm-mujoco
+    args: "--xml models/openarm_mujoco_v1/scene.xml --keyframe home --viewer --debug-frames"
+    inputs:
+      position_left: ik/position_left
+      position_right: ik/position_right
+      pose_right: udp-receiver/pose_right
+      pose_left: udp-receiver/pose_left
+      joystick_y: udp-receiver/joystick_y
+    outputs:
+      - status

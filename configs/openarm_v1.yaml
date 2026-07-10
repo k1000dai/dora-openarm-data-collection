@@ -1,0 +1,127 @@
+# Copyright 2026 Enactic, Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# OpenArm v1 driver configuration (openarm_driver.Config).
+#
+# This is a CALIBRATION TEMPLATE for the OpenArm v1 hardware. The v1 and v2
+# MuJoCo models do NOT share a joint convention, and the driver applies commands
+# as `motor_angle[i] = model_angle[i] + joint_offsets[i]` (additive only — it
+# cannot flip a sign or rescale). So the fields below fall into three groups:
+#
+#   - v2-identical (safe to reuse): motor_config, can_interface (cabling knob),
+#     control_gains, joint_delta_position_limits, gripper_posforce*. The v1 and
+#     v2 arms use the same standard 7-DOF + gripper DM-motor build.
+#   - v1-authoritative: joint_limits for arm joints 1-7 (from the v1 MJCF).
+#   - CALIBRATION TARGETS: joint_offsets (start at 0 — MUST be measured on the
+#     real v1 arm before absolute positioning is trusted). If a joint moves the
+#     WRONG DIRECTION during bring-up, an offset cannot fix it — flip that
+#     joint's axis in the vendored v1 MJCF instead.
+#
+# The 8th value (gripper) reaching the follower is in RADIANS, produced by the
+# dora-openarm-gripper-adapter node (v1 IK emits the gripper in prismatic meters;
+# the adapter rescales it to the v2 motor convention). So the gripper joint_limit
+# below is in radians, matching openarm_cell.yaml.
+#
+# Calibration procedure (safety-gated, one joint at a time):
+#   1. CAN up (can0/can1), arms powered, workspace clear, e-stop reachable.
+#   2. dora run dataflow-vr-v1.yaml. SQUEEZE a trigger to arm the alignment ramp
+#      (the interlock blocks until you do). Watch for wrong-direction joints.
+#   3. Hold the Quest neutral; per joint, compare follower state.qpos to the
+#      intended model angle and set joint_offsets[i] to align motor zero to model
+#      zero. Re-run until neutral matches.
+#   4. Verify joint_limits are not tripped in the intended workspace.
+#   5. Tune the gripper-adapter --out-open-{right,left} so the trigger fully
+#      opens/closes the jaw without straining at the mechanical limit.
+
+# Joint limits [min, max]. Joints 1-7 in radians (from the v1 MJCF); the 8th
+# (gripper) in radians (post-adapter, matching openarm_cell.yaml).
+joint_limits:
+  right_arm:
+    - [-1.396263, 3.490659]  # joint1
+    - [-0.174533, 3.316125]  # joint2
+    - [-1.570796, 1.570796]  # joint3
+    - [0.0, 2.443461]        # joint4
+    - [-1.570796, 1.570796]  # joint5
+    - [-0.785398, 0.785398]  # joint6
+    - [-1.570796, 1.570796]  # joint7
+    - [-1.047198, 0.4]       # gripper (rad; encompasses adapter's [-0.785, 0])
+
+  left_arm:
+    - [-3.490659, 1.396263]  # joint1
+    - [-3.316125, 0.174533]  # joint2
+    - [-1.570796, 1.570796]  # joint3
+    - [0.0, 2.443461]        # joint4
+    - [-1.570796, 1.570796]  # joint5
+    - [-0.785398, 0.785398]  # joint6
+    - [-1.570796, 1.570796]  # joint7
+    - [-0.4, 1.047198]       # gripper (rad; encompasses adapter's [0, 0.785])
+
+# CALIBRATION TARGET: measure on the real v1 arm. Zeros = motor zero equals
+# model zero, which is almost certainly not yet true.
+joint_offsets:
+  right_arm: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+  left_arm: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+
+# Joint delta position limits (rad/s). Copied from openarm_cell.yaml.
+joint_delta_position_limits:
+  - 1.8 # J0
+  - 1.8 # J1
+  - 3.3 # J2
+  - 2.3 # J3
+  - 3.5 # J4
+  - 3.5 # J5
+  - 3.5 # J6
+  - 3.5 # J7
+
+# CAN interface (cabling-dependent knob).
+can_interface:
+  right_arm: "can0"
+  left_arm: "can1"
+
+# Motor configuration. Identical to the standard OpenArm build (v1 and v2 share
+# the same 7-DOF + gripper DM-motor wiring).
+motor_config:
+  types: ['DM8009', 'DM8009', 'DM4340', 'DM4340', 'DM4310', 'DM4310', 'DM4310', 'DM4310']
+  send_ids: [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08]
+  recv_ids: [0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18]
+
+# Gripper POS_FORCE mode. index 0: max rad/s, index 1: max force (Nm).
+gripper_posforce: true
+gripper_posforce_limits: [50.0, 1.0]
+
+# Default PD control gains. Copied from openarm_cell.yaml (same DM motor family);
+# verify on v1.
+control_gains:
+  kps: [70.0, 70.0, 70.0, 60.0, 10.0, 10.0, 10.0, 10.0]
+  kds: [2.75, 2.5, 2.0, 2.0, 0.7, 0.6, 0.5, 0.2]
+
+# Start configuration. v1 `home` posture (elbow bent 90 deg, gripper closed).
+start:
+  moves:
+    - name: "initial"
+      position:
+        right_arm: [0.0, 0.0, 0.0, 1.570796, 0.0, 0.0, 0.0, 0.0]
+        left_arm: [0.0, 0.0, 0.0, 1.570796, 0.0, 0.0, 0.0, 0.0]
+      hz: 50
+      duration: 2
+
+# Stop configuration. v1 `home` posture.
+stop:
+  moves:
+    - name: "initial"
+      position:
+        right_arm: [0.0, 0.0, 0.0, 1.570796, 0.0, 0.0, 0.0, 0.0]
+        left_arm: [0.0, 0.0, 0.0, 1.570796, 0.0, 0.0, 0.0, 0.0]
+      hz: 50
+      duration: 2

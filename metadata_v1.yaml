@@ -12,18 +12,20 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-/dataset/
-/out/
+# Panel metadata for the OpenArm v1 real-robot VR teleop (teleop only).
+# Display-only: no lifter or cameras in this flow.
 
-# Fetched via models/openarm_mujoco_v1/fetch_v1_model.sh (large binary meshes,
-# not committed). The patched MJCF files are committed.
-/models/openarm_mujoco_v1/meshes/
+location: Lab
+operator: Tester
 
-# MuJoCo runtime log
-MUJOCO_LOG.TXT
+tasks:
+  - prompt: Teleoperate the OpenArm v1 arms.
+    description: VR teleoperation of the OpenArm v1 arms (teleop only).
 
-# Python caches
-__pycache__/
-*.py[cod]
-.pytest_cache/
-.ruff_cache/
+equipment:
+  id: Test
+  version: "1.0"
+  embodiments:
+    arms:
+      id: OpenArm
+      version: "1.0"

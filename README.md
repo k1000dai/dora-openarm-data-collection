@@ -30,6 +30,37 @@ dora build dataflow-vr-v1-mujoco.yaml
 dora run dataflow-vr-v1-mujoco.yaml
 ```
 
+### VR teleoperation (OpenArm v1, real robot)
+
+[`dataflow-vr-v1.yaml`](dataflow-vr-v1.yaml) drives the **real OpenArm v1** arms
+from Meta Quest controllers, teleoperation-only (no recorder, cameras, or
+dataset), with a MuJoCo viewer kept alongside as a live digital twin:
+VR → IK → `dora-openarm-gripper-adapter` → real followers (+ MuJoCo twin).
+
+The v1 gripper is a parallel-jaw slide (meters) driven by the rotary gripper
+motor (radians); the
+[`dora-openarm-gripper-adapter`](nodes/dora-openarm-gripper-adapter) node
+rescales the IK gripper element into the gripper-motor convention so the gripper
+and the follower's `--align-trigger gripper` interlock behave exactly like v2
+(**squeeze a trigger to arm the alignment ramp**).
+
+The follower hardware config lives in [`configs/openarm_v1.yaml`](configs/openarm_v1.yaml).
+Its `joint_offsets` start at `0` and **must be calibrated on the real v1 arm**
+before absolute positioning is trusted (see the calibration procedure in the
+config header). The step-limited alignment ramp keeps first bring-up safe.
+
+```bash
+models/openarm_mujoco_v1/fetch_v1_model.sh
+# Bring up CAN (can0/can1) for the two arms, then calibrate configs/openarm_v1.yaml.
+dora build dataflow-vr-v1.yaml
+dora run dataflow-vr-v1.yaml
+```
+
+> **Safety:** the arms auto-start on boot but the alignment ramp is gated — the
+> arms only move once you squeeze a trigger. Keep the workspace clear and an
+> e-stop reachable, and watch for any joint moving the wrong direction during the
+> first bring-up (that signals an inverted axis; see the config header).
+
 ## License
 
 Licensed under the Apache License 2.0. See [LICENSE](LICENSE) for details.

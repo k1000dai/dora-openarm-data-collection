@@ -25,9 +25,12 @@ whose MuJoCo assets are vendored, patched, under `models/openarm_mujoco_v1/`
 - **Start command:** reuse `dora-openarm-data-collection-ui` as a lightweight arm
   control panel (it auto-emits `arm_command: start` on boot and maps VR buttons);
   no cameras/recorder wired to it.
-- **Gripper:** arm-first. The gripper is left inert this iteration (VR triggers
-  are **not** wired into IK); the meters→radians gripper mapping is a tracked
-  follow-up (see Findings §1 and Follow-up).
+- **Gripper:** made to work, **identically to v2**. A small `gripper-adapter`
+  node converts the IK gripper element from v1 model units (prismatic meters) to
+  gripper-motor radians (v2 convention) for the followers, so both the gripper
+  *and* the `--align-trigger gripper` interlock behave like v2 ("squeeze the
+  trigger to align"). VR triggers are wired into IK; `--align-trigger gripper` is
+  kept on the followers. (See Findings §1 and Components §2.)
 - **Joint offsets:** `configs/openarm_v1.yaml` seeds `joint_offsets` at **0** with
   a documented, safety-gated on-hardware calibration procedure; `joint_limits`
   are taken from the v1 MJCF.
@@ -46,15 +49,26 @@ Offsets **only shift the zero** — they cannot flip a joint's sign or rescale
 units. Comparing the vendored v1 `openarm_bimanual.xml` to the pip v2 model
 (`openarm-mujoco==2.0.0`, `v2/openarm_bimanual.xml`) shows the conventions differ:
 
-**1. Gripper — concrete units mismatch (blocking for gripper control).**
+**1. Gripper — units mismatch, fixed by the `gripper-adapter` node.**
 The kinematics fork (`k1000dai/dora-openarm-kinematics`, `ik.py`) reads the
 finger's "open" limit from the model per robot — comment: *"v2's revolute
 fingers open at ±0.785 rad, v1's prismatic fingers at 0.044 m."* So for v1, IK
-emits the 8th value as a **prismatic finger position in meters (0–0.044)**. The
-driver forwards that 8th value to the **rotary gripper motor as radians**. 0.044
-"rad" ≈ 2.5° — the v1 gripper will not open/close. The fix (a meters→radians
-gripper mapping) **cannot be expressed in the driver config** (offsets are
-additive), so the gripper is deferred (arm-first decision).
+emits the 8th value as a **prismatic finger position in meters (0–0.044)**, while
+the driver forwards that 8th value to the **rotary gripper motor as radians** —
+0.044 "rad" ≈ 2.5°, so the gripper would not open/close, and the interlock
+thresholds (±5°, radians) never fire against meters values.
+
+The v1 gripper hardware is a **parallel-jaw slide (0–44 mm) driven by the rotary
+DM4310 through a crank-slider** (per docs.openarm.dev/hardware); v2's is
+revolute (`±0.785 rad`). The fix cannot live in the driver config (offsets are
+additive, no scale) and we do not modify upstream nodes, so a small
+`gripper-adapter` node rescales the gripper element meters→radians into the v2
+convention (`closed 0`, `open ∓0.785 rad`, sign per side) between IK and the
+followers. A linear map suffices for teleop open/close and the interlock; the
+crank-slider's mild nonlinearity is an optional later refinement. The full-open
+radian magnitude is a **calibration knob** (default `∓0.785`, tuned on hardware),
+like the arm offsets. The MuJoCo viewer still reads IK directly (meters), so the
+prismatic twin stays faithful.
 
 **2. Arm joints 1–7 — offsets/signs must be calibrated on hardware.**
 The v1 vs v2 joint `axis` vectors differ on most joints (e.g. right `joint3`
@@ -78,6 +92,7 @@ are set correctly for v1 up front.
 **In scope**
 
 - New teleop-only real-robot dataflow: `dataflow-vr-v1.yaml`.
+- New local node `nodes/dora-openarm-gripper-adapter` (meters→radians gripper).
 - Vendored v1 driver config: `configs/openarm_v1.yaml` (calibration template).
 - Minimal `metadata_v1.yaml` for the UI panel (display-only).
 - README section + a documented on-hardware calibration procedure.
@@ -85,51 +100,83 @@ are set correctly for v1 up front.
 **Out of scope**
 
 - Recorder/dataset, cameras, cell lifter.
-- Gripper control on v1 (deferred; see Follow-up).
-- Changes to upstream node code (`openarm_driver`, `dora-openarm`, `dora-openarm-mujoco`).
+- Changes to upstream node code (`openarm_driver`, `dora-openarm`, `dora-openarm-mujoco`)
+  and to the forks (`dora-openarm-vr`, `dora-openarm-kinematics`) — the gripper
+  units fix lives in the new adapter node, not in these.
+- Crank-slider-exact gripper mapping (linear approximation is used; see Follow-up).
 - Bilateral force-feedback teleop (the `openarm_teleop` reference paradigm).
 
 ## Components
 
-### 1. `dataflow-vr-v1.yaml` (7 nodes)
+### 1. `dataflow-vr-v1.yaml` (8 nodes)
 
-Built on `dataflow-vr-v1-mujoco.yaml`, with real followers + UI added and the
-gripper trigger wiring removed.
+Built on `dataflow-vr-v1-mujoco.yaml`, with real followers + UI + the
+`gripper-adapter` added.
 
 | Node | Package | Notes |
 |---|---|---|
 | `ui` | `dora-openarm-data-collection-ui` | `env: METADATA_FILE: metadata_v1.yaml`. Inputs: `tick` (secs/1), `button_a`/`button_b` (receiver), `arm_status_{right,left}` (followers). Outputs `command`, `arm_command`. Auto-starts arms on boot. No camera/recorder inputs. |
 | `quittable-tick-leader` | `dora-openarm-quitter` | `tick: millis/2`, `command: ui/command`. |
 | `udp-receiver` | `dora-openarm-vr` | `--host 0.0.0.0 --port 5006 --ee-correction-deg 180 0 0 --frame-offset 0.0 0 0.6` (v1 VR calibration, carried from the v1 sim flow). |
-| `ik` | `dora-openarm-ik` | `--xml models/openarm_mujoco_v1/scene.xml --keyframe home --mode bimanual --max-iters 10 --dt 0.1 --damping 0.1 --posture-cost 0.01 --lm-damping 0.01`. Inputs: `tick`, `target_{right,left}` (poses). **`trigger_{right,left}` are intentionally NOT wired** (gripper deferred). |
-| `follower-right` | `dora-openarm` | `--side right --config configs/openarm_v1.yaml` (no `--align-trigger`; see below). Inputs: `move_position: ik/position_right`, `command: ui/arm_command`. Output `status` → ui. |
-| `follower-left` | `dora-openarm` | `--side left --config configs/openarm_v1.yaml` (no `--align-trigger`; see below). Inputs: `move_position: ik/position_left`, `command: ui/arm_command`. Output `status` → ui. |
-| `mujoco-viewer` | `dora-openarm-mujoco` | `--xml models/openarm_mujoco_v1/scene.xml --keyframe home --viewer --debug-frames`. Fed by `ik/position_{l,r}` + receiver poses/joystick. Shows the *commanded* pose (digital twin). |
+| `ik` | `dora-openarm-ik` | `--xml models/openarm_mujoco_v1/scene.xml --keyframe home --mode bimanual --max-iters 10 --dt 0.1 --damping 0.1 --posture-cost 0.01 --lm-damping 0.01`. Inputs: `tick`, `target_{right,left}` (poses), `trigger_{right,left}` (VR triggers → gripper, in v1 model meters). |
+| `gripper-adapter` | `dora-openarm-gripper-adapter` (new, local) | Inputs: `position_{right,left}` from IK. Outputs: `position_{right,left}` with joints 1–7 passed through and the 8th (gripper) rescaled meters→radians (v2 convention). Args expose the per-side full-open radian (calibration knob). See §2. |
+| `follower-right` | `dora-openarm` | `--side right --align-trigger gripper --config configs/openarm_v1.yaml`. Inputs: `move_position: gripper-adapter/position_right`, `command: ui/arm_command`. Output `status` → ui. |
+| `follower-left` | `dora-openarm` | `--side left --align-trigger gripper --config configs/openarm_v1.yaml`. Inputs: `move_position: gripper-adapter/position_left`, `command: ui/arm_command`. Output `status` → ui. |
+| `mujoco-viewer` | `dora-openarm-mujoco` | `--xml models/openarm_mujoco_v1/scene.xml --keyframe home --viewer --debug-frames`. Fed by `ik/position_{l,r}` (meters — the faithful prismatic twin) + receiver poses/joystick. Shows the *commanded* pose. |
+
+Note the split: **followers** read `gripper-adapter/position_*` (radians);
+the **viewer** reads `ik/position_*` (meters). The 7 arm joints are identical on
+both wires — only the gripper element differs by units.
 
 Differences from `dataflow-vr.yaml` (v2): v1 `--xml`/VR calibration; `--config
-configs/openarm_v1.yaml`; no recorder/cameras/lifter; `trigger_*` not wired
-(gripper deferred); no `--align-trigger` (see below); the `request_state`
-follower input is dropped (nothing consumes follower `state`, and it would force
-a CAN refresh every tick — the UI uses `follower/status`, and the viewer uses IK
-`position_*`).
+configs/openarm_v1.yaml`; no recorder/cameras/lifter; the `gripper-adapter` sits
+between IK and the followers; the `request_state` follower input is dropped
+(nothing consumes follower `state`, and it would force a CAN refresh every tick —
+the UI uses `follower/status`, and the viewer uses IK `position_*`).
 
-**Alignment / `--align-trigger`.** The follower's soft-start ramp (`_align`) is
-used and is what makes zero-offset bring-up safe: it seeds `align_target` from the
+**Alignment / `--align-trigger gripper`.** The follower's soft-start ramp
+(`_align`) makes zero-offset bring-up safe: it seeds `align_target` from the
 *actual* motor position, then steps toward the command by `clip(diff, ±0.001 rad)`
 per event, flipping to `ALIGNED` only once every joint is within `align_threshold`
 (0.1 rad), after which it tracks directly with a >0.1 rad divergence re-ramp. At
 `millis/2` that is ~0.5 rad/s — the arm creeps, never jumps.
 
-`--align-trigger gripper` is **dropped for v1**. Its gate compares the 8th
-(gripper) value against `±np.deg2rad(5)` (≈ ±0.0873), thresholds authored for
-v2's *revolute* gripper (`-0.785..0` rad). v1's gripper is *prismatic meters*
-(`[0, 0.044]`), so every value satisfies both `> -0.0873` (right) and `< 0.0873`
-(left): `is_gripping` is always True → the interlock never blocks and never
-functions (a permanently-armed no-op). It cannot work with a meters-valued
-gripper, so v1 runs plain alignment (`trigger=None`, gate skipped). Re-evaluate
-the interlock if/when the gripper follow-up gives v1 a radian-scaled gripper.
+`--align-trigger gripper` is **kept**, and now works exactly like v2 because the
+adapter feeds the gripper in radians. The gate marks the arm "gripping" when the
+8th value is near closed (`> -0.0873` right / `< 0.0873` left); with the adapter's
+v2 convention (`closed 0`, `open ∓0.785`), squeezing the trigger drives the
+gripper toward 0 → gate passes → the ramp proceeds, and releasing opens the
+gripper → gate blocks. "Squeeze to align," identical to v2. (At boot, before VR
+connects, IK holds the `home` gripper value `0` = closed, exactly as v2 does, so
+startup gating matches v2 too.)
 
-### 2. `configs/openarm_v1.yaml` (calibration template)
+### 2. `nodes/dora-openarm-gripper-adapter` (new local node)
+
+A small, focused dora node that converts the IK gripper element from v1 model
+units (prismatic **meters**, `[0, 0.044]`) to gripper-motor **radians** in the v2
+convention, so the real followers and the `--align-trigger gripper` interlock
+behave exactly like v2.
+
+- **Inputs:** `position_right`, `position_left` — float32[8] from IK.
+- **Outputs:** `position_right`, `position_left` — float32[8], joints 1–7 passed
+  through unchanged, the 8th (gripper) rescaled.
+- **Transform (per side):** `rad = out_open_side * (meters / in_open)`, with
+  `in_open = 0.044` (v1 model finger open), `out_open_right = -0.785`,
+  `out_open_left = +0.785` (v2 convention: `closed 0`, `open ∓0.785`). Linear,
+  monotonic; `meters = 0` (closed) maps to `0` on both sides.
+- **Args (calibration knobs):** `--in-open` (default `0.044`),
+  `--out-open-right` (default `-0.785`), `--out-open-left` (default `0.785`).
+  The full-open radian is tuned on hardware to the real jaw's fully-open motor
+  angle; the sign per side matches how the real gripper motors mount.
+- **Event-driven:** emits a converted `position_{side}` on each corresponding IK
+  input; no tick needed.
+
+Layout mirrors the other small local nodes (`pyproject.toml`, `src/…/main.py`,
+`README.md`). Kept deliberately tiny and pure so it is unit-testable without
+hardware. This is the *only* place the v1 gripper units fix lives — no upstream
+or fork code changes.
+
+### 3. `configs/openarm_v1.yaml` (calibration template)
 
 A driver config resolved by `openarm_driver.Config` as a repo-relative path from
 the dataflow working directory. Version-independent parts copied from the v2
@@ -139,12 +186,15 @@ targets:
 - `motor_config` — **identical** to v2 (standard 7-DOF + gripper build:
   `DM8009×2, DM4340×2, DM4310×4`; `send_ids 0x01–0x08`, `recv_ids 0x11–0x18`).
 - `can_interface` — `right_arm: can0`, `left_arm: can1` (cabling-dependent knob).
-- `joint_limits` — from the v1 MJCF (model units), both arms:
+- `joint_limits` — arm joints 1–7 from the v1 MJCF (model units); the gripper
+  (8th) is in **radians**, since the adapter feeds the follower radians (the
+  safety checker runs on the post-adapter command). Both arms:
   - right `joint1..7`: `[-1.396263, 3.490659]`, `[-0.174533, 3.316125]`,
     `[-1.570796, 1.570796]`, `[0.0, 2.443461]`, `[-1.570796, 1.570796]`,
-    `[-0.785398, 0.785398]`, `[-1.570796, 1.570796]`; gripper `[0.0, 0.044]` (m).
+    `[-0.785398, 0.785398]`, `[-1.570796, 1.570796]`; gripper `[-1.047198, 0.4]`
+    (rad, from `openarm_cell.yaml` — encompasses the adapter's `[-0.785, 0]`).
   - left `joint1..7`: `[-3.490659, 1.396263]`, `[-3.316125, 0.174533]`, then the
-    same j3–j7 as right; gripper `[0.0, 0.044]` (m).
+    same j3–j7 as right; gripper `[-0.4, 1.047198]` (rad, encompasses `[0, 0.785]`).
 - `joint_offsets` — **all zeros** (8 per arm), with a prominent header comment:
   *these must be calibrated on the real v1 arm before absolute positioning is
   trusted.*
@@ -158,45 +208,52 @@ targets:
 The file header documents which fields are v1-authoritative vs. calibration
 targets vs. copied-from-v2.
 
-### 3. `metadata_v1.yaml`
+### 4. `metadata_v1.yaml`
 
 Minimal panel metadata (arms `1.0`, no lifter, no perceptions) so the UI does not
 advertise v2 hardware absent from this flow. Display-only; the UI reads it for the
 panel and is otherwise agnostic.
 
-### 4. README
+### 5. README
 
 A "VR teleoperation (OpenArm v1, real robot)" section: fetch the v1 model → bring
-up CAN (`can0`/`can1`) → **calibrate `configs/openarm_v1.yaml`** (link the
-procedure) → `dora build dataflow-vr-v1.yaml` → `dora run`, with a safety note and
-an explicit "gripper is inert on v1 for now" caveat.
+up CAN (`can0`/`can1`) → **calibrate `configs/openarm_v1.yaml`** and the
+`gripper-adapter` open-radian (link the procedure) → `dora build
+dataflow-vr-v1.yaml` → `dora run`, with a safety note and the "squeeze the trigger
+to align" gesture called out.
 
 ## Data Flow
 
 ```
-Quest ──UDP──▶ udp-receiver ──pose_{r,l}──▶ ik (v1 scene) ──position_{r,l}──┬──▶ follower-right (real, configs/openarm_v1.yaml)
-                    │  button_a/b                                            ├──▶ follower-left  (real, configs/openarm_v1.yaml)
-                    ▼                                                        └──▶ mujoco-viewer (v1 digital twin)
-                   ui ──arm_command:start──▶ followers    followers ──status──▶ ui (start/stop + status panel)
-                   ui ──command:quit──────▶ quittable-tick-leader
+Quest ─UDP▶ udp-receiver ─pose_{r,l}─▶ ik (v1 scene) ─position_{r,l} (m)─┬─▶ gripper-adapter ─position_{r,l} (rad)─┬─▶ follower-right (real, openarm_v1.yaml)
+              │  trigger_{r,l} ───────▶ (→ gripper, meters)              │                                        └─▶ follower-left  (real, openarm_v1.yaml)
+              │  button_a/b                                              └─▶ mujoco-viewer (v1 twin, meters)
+              ▼
+             ui ─arm_command:start─▶ followers     followers ─status─▶ ui (start/stop + status panel)
+             ui ─command:quit──────▶ quittable-tick-leader
 ```
 
-Triggers are not wired; the gripper holds a constant (inert). Nothing is persisted.
+Followers read radians (via the adapter); the viewer reads IK meters directly.
+"Squeeze the trigger to align" (v2-identical interlock). Nothing is persisted.
 
 ## On-hardware Calibration Procedure (documented in the config header / README)
 
 Safety-gated, one joint at a time, with `joint_offsets` starting at 0:
 
 1. CAN up (`can0`/`can1`), arms powered, workspace clear, e-stop reachable.
-2. `dora run dataflow-vr-v1.yaml`; arms auto-start and ramp (step-limited) toward
-   the commanded neutral. Watch for any joint moving the **wrong direction** — that
-   signals an inverted axis (config offsets cannot fix it; the v1 MJCF joint axis
-   must be flipped instead). Stop if so.
+2. `dora run dataflow-vr-v1.yaml`. **Squeeze a trigger** to arm the alignment
+   ramp (the interlock blocks alignment until you do). Arms ramp (step-limited)
+   toward the commanded neutral. Watch for any joint moving the **wrong
+   direction** — that signals an inverted axis (config offsets cannot fix it; the
+   v1 MJCF joint axis must be flipped instead). Release the trigger / e-stop if so.
 3. Hold the Quest neutral; for each joint, read the follower `state.qpos` (model
    frame) vs. the intended model angle and set `joint_offsets[i]` to align motor
    zero to model zero. Re-run; iterate until neutral matches.
 4. Verify soft `joint_limits` are not tripped in the intended workspace.
-5. Only after arm calibration is trusted, address the gripper follow-up.
+5. **Gripper:** with the arm calibrated, tune the `gripper-adapter`
+   `--out-open-{right,left}` so a released trigger fully opens the jaw and a
+   squeezed trigger closes it, without straining at the mechanical limit. Confirm
+   the sign per side (jaw opens, not closes, on release).
 
 ## Error / Edge Handling
 
@@ -206,8 +263,16 @@ Safety-gated, one joint at a time, with `joint_offsets` starting at 0:
   step-limited ramp prevents jumps. Bounded by `joint_limits` from the MJCF.
 - **CAN device mismatch** (`can0`/`can1` naming) → driver raises on init; documented
   as a config knob.
-- **No Quest connected** → pipeline builds, arms auto-start and hold neutral; no
-  pose events flow. Valid smoke test.
+- **No Quest connected** → pipeline builds, arms auto-start and hold the `home`
+  gripper (closed); the interlock leaves the ramp gated until a trigger squeeze
+  (same as v2). Valid build/model smoke test.
+- **Un-squeezed at start** → the interlock holds the arms at their power-on pose
+  (no ramp) until a trigger is squeezed — the intended safety gesture.
+- **Gripper sign wrong / over-travel** → adapter `--out-open-{side}` mis-set; the
+  jaw closes on release or strains at the limit. Caught in calibration step 5;
+  fix the sign/magnitude arg. `joint_limits` (rad) clamp the follower command.
+- **CAN device mismatch** (`can0`/`can1` naming) → driver raises on init; documented
+  as a config knob.
 - **UI reachable** → the web panel provides a visible start/stop and live status,
   the intended manual safety control for hardware.
 
@@ -216,22 +281,26 @@ Safety-gated, one joint at a time, with `joint_offsets` starting at 0:
 1. `dora build dataflow-vr-v1.yaml` succeeds (followers pull `openarm-driver`;
    full run needs CAN libs + hardware on the robot host).
 2. `pre-commit run --all-files` clean (YAML/format/lint).
-3. Config-load smoke (host, no hardware):
+3. `gripper-adapter` unit tests (no hardware): joints 1–7 pass through untouched;
+   gripper `0.0 m → 0.0 rad`, `0.044 m → -0.785 rad` (right) / `+0.785 rad` (left);
+   output length 8; args override the open radian.
+4. Config-load smoke (host, no hardware):
    `openarm_driver.Config("configs/openarm_v1.yaml")` parses and every getter
    (`get_joint_limits`, `get_joint_offsets`, `get_motor_types`, …) resolves for
-   both arms; lengths are 8.
-4. Hardware (manual, documented): run the calibration procedure above; confirm
-   arms track Quest motion and the MuJoCo twin mirrors the command; gripper inert.
+   both arms; lengths are 8; gripper limit is the radian range.
+5. Hardware (manual, documented): run the calibration procedure; confirm the
+   squeeze-to-align interlock, arms tracking Quest motion, the gripper opening/
+   closing with the trigger, and the MuJoCo twin mirroring the command.
 
 ## Follow-up (out of this iteration)
 
-- **Gripper (v1):** add a meters→radians mapping so VR triggers drive the v1
-  gripper. Cannot live in the driver config; candidates: a hardware-gripper output
-  (radians) in the kinematics fork, or a small meters→rad adapter node between IK
-  and the followers. Then wire `trigger_{right,left}` back into IK.
-- Optional: promote calibrated `joint_offsets` and any MJCF axis fixes upstream.
+- **Crank-slider-exact gripper mapping:** replace the adapter's linear meters→rad
+  approximation with the true crank-slider inverse if open/close precision needs it.
+- Optional: promote calibrated `joint_offsets`, the `gripper-adapter` calibration,
+  and any v1 MJCF axis fixes upstream.
 
 ## Rollout
 
-Single PR: `dataflow-vr-v1.yaml` + `configs/openarm_v1.yaml` + `metadata_v1.yaml`
-+ README section. No upstream node changes.
+Single PR: `dataflow-vr-v1.yaml` + `nodes/dora-openarm-gripper-adapter/` +
+`configs/openarm_v1.yaml` + `metadata_v1.yaml` + README section. No upstream node
+changes.

@@ -14,34 +14,33 @@
 
 # OpenArm v1 driver configuration (openarm_driver.Config).
 #
-# This is a CALIBRATION TEMPLATE for the OpenArm v1 hardware. The v1 and v2
-# MuJoCo models do NOT share a joint convention, and the driver applies commands
-# as `motor_angle[i] = model_angle[i] + joint_offsets[i]` (additive only — it
-# cannot flip a sign or rescale). So the fields below fall into three groups:
+# The driver applies commands as `motor_angle[i] = model_angle[i] +
+# joint_offsets[i]` (additive only — it cannot flip a sign or rescale). Field
+# groups:
 #
 #   - v2-identical (safe to reuse): motor_config, can_interface (cabling knob),
 #     control_gains, joint_delta_position_limits, gripper_posforce*. The v1 and
 #     v2 arms use the same standard 7-DOF + gripper DM-motor build.
 #   - v1-authoritative: joint_limits for arm joints 1-7 (from the v1 MJCF).
-#   - CALIBRATION TARGETS: joint_offsets (start at 0 — MUST be measured on the
-#     real v1 arm before absolute positioning is trusted). If a joint moves the
-#     WRONG DIRECTION during bring-up, an offset cannot fix it — flip that
-#     joint's axis in the vendored v1 MJCF instead.
+#   - joint_offsets: 0. The OpenArm hardware uses an identity motor<->joint
+#     mapping (see openarm_teleop's JointMapper: joint[i] = motor[i]) and the v1
+#     motor 0-pose is aligned to the v1 model 0-pose, so no offset is needed.
+#     (Contrast v2's openarm_cell.yaml, whose model uses a different zero.)
 #
 # The 8th value (gripper) reaching the follower is in RADIANS, produced by the
 # dora-openarm-gripper-adapter node (v1 IK emits the gripper in prismatic meters;
-# the adapter rescales it to the v2 motor convention). So the gripper joint_limit
-# below is in radians, matching openarm_cell.yaml.
+# the adapter rescales it to motor radians). So the gripper joint_limit below is
+# in radians, matching openarm_cell.yaml.
 #
-# Calibration procedure (safety-gated, one joint at a time):
+# First-run checks (not a full calibration — offsets should already be right):
 #   1. CAN up (can0/can1), arms powered, workspace clear, e-stop reachable.
 #   2. dora run dataflow-vr-v1.yaml. SQUEEZE a trigger to arm the alignment ramp
-#      (the interlock blocks until you do). Watch for wrong-direction joints.
-#   3. Hold the Quest neutral; per joint, compare follower state.qpos to the
-#      intended model angle and set joint_offsets[i] to align motor zero to model
-#      zero. Re-run until neutral matches.
-#   4. Verify joint_limits are not tripped in the intended workspace.
-#   5. Tune the gripper-adapter --out-open-{right,left} so the trigger fully
+#      (the interlock blocks until you do; the ramp is step-limited, so the arm
+#      creeps). Confirm each joint moves the RIGHT direction — a sign flip would
+#      look fine in sim but reversed on hardware, and needs the v1 MJCF joint
+#      axis flipped (an offset cannot fix a sign). Only set a joint_offsets[i]
+#      if the 0-pose turns out not to be aligned for that joint.
+#   3. Tune the gripper-adapter --out-open-{right,left} so the trigger fully
 #      opens/closes the jaw without straining at the mechanical limit.
 
 # Joint limits [min, max]. Joints 1-7 in radians (from the v1 MJCF); the 8th
@@ -67,8 +66,9 @@ joint_limits:
     - [-1.570796, 1.570796]  # joint7
     - [-0.4, 1.047198]       # gripper (rad; encompasses adapter's [0, 0.785])
 
-# CALIBRATION TARGET: measure on the real v1 arm. Zeros = motor zero equals
-# model zero, which is almost certainly not yet true.
+# Zero: v1 motor 0-pose is aligned to the v1 model 0-pose (identity motor<->joint
+# mapping). Set a value here only if the first-run check shows a joint's 0-pose
+# is off.
 joint_offsets:
   right_arm: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
   left_arm: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]

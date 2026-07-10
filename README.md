@@ -45,21 +45,23 @@ and the follower's `--align-trigger gripper` interlock behave exactly like v2
 (**squeeze a trigger to arm the alignment ramp**).
 
 The follower hardware config lives in [`configs/openarm_v1.yaml`](configs/openarm_v1.yaml).
-Its `joint_offsets` start at `0` and **must be calibrated on the real v1 arm**
-before absolute positioning is trusted (see the calibration procedure in the
-config header). The step-limited alignment ramp keeps first bring-up safe.
+Its `joint_offsets` are `0`: the OpenArm hardware uses an identity motor↔joint
+mapping and the v1 motor 0-pose is aligned to the v1 model 0-pose, so no offset
+is needed (assuming the motors are zeroed per the standard OpenArm setup). The
+step-limited alignment ramp keeps first bring-up safe.
 
 ```bash
 models/openarm_mujoco_v1/fetch_v1_model.sh
-# Bring up CAN (can0/can1) for the two arms, then calibrate configs/openarm_v1.yaml.
+# Bring up CAN (can0/can1) for the two arms (standard OpenArm motor zeroing).
 dora build dataflow-vr-v1.yaml
 dora run dataflow-vr-v1.yaml
 ```
 
 > **Safety:** the arms auto-start on boot but the alignment ramp is gated — the
 > arms only move once you squeeze a trigger. Keep the workspace clear and an
-> e-stop reachable, and watch for any joint moving the wrong direction during the
-> first bring-up (that signals an inverted axis; see the config header).
+> e-stop reachable, and on the first run confirm each joint moves the right
+> direction (a model/hardware sign flip looks fine in sim but reversed on
+> hardware; see the config header).
 
 ## License
 

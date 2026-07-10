@@ -31,9 +31,12 @@ whose MuJoCo assets are vendored, patched, under `models/openarm_mujoco_v1/`
   *and* the `--align-trigger gripper` interlock behave like v2 ("squeeze the
   trigger to align"). VR triggers are wired into IK; `--align-trigger gripper` is
   kept on the followers. (See Findings §1 and Components §2.)
-- **Joint offsets:** `configs/openarm_v1.yaml` seeds `joint_offsets` at **0** with
-  a documented, safety-gated on-hardware calibration procedure; `joint_limits`
-  are taken from the v1 MJCF.
+- **Joint offsets:** `configs/openarm_v1.yaml` sets `joint_offsets` to **0**. The
+  OpenArm hardware uses an identity motor↔joint mapping (openarm_teleop's
+  `JointMapper`: `joint[i] = motor[i]`) and the v1 motor 0-pose is aligned to the
+  v1 model 0-pose, so no offset is needed. `joint_limits` are taken from the v1
+  MJCF. A first-run per-joint **sign** check is the only residual (a flip looks
+  fine in sim but reverses on hardware; not fixable by an offset).
 
 ## Key Findings — v1 and v2 do NOT share a joint convention
 
@@ -70,22 +73,28 @@ radian magnitude is a **calibration knob** (default `∓0.785`, tuned on hardwar
 like the arm offsets. The MuJoCo viewer still reads IK directly (meters), so the
 prismatic twin stays faithful.
 
-**2. Arm joints 1–7 — offsets/signs must be calibrated on hardware.**
-The v1 vs v2 joint `axis` vectors differ on most joints (e.g. right `joint3`
-`0 0 1`→`0 0 -1`, `joint4` `0 1 0`→`0 -1 0`, `joint6`/`joint7` reoriented). Some
-is benign body-frame reorientation, but any v1 joint whose *positive direction*
-is opposite the motor's cannot be corrected by an additive offset — it would
-drive the wrong way. Therefore `joint_offsets` (and, if a sign is inverted, the
-v1 MJCF joint axis itself) must be **derived against the real v1 motors**, not
-copied from `openarm_cell.yaml` (which is calibrated to the v2 model).
+**2. Arm joints 1–7 — `joint_offsets = 0`; only a first-run sign check remains.**
+The OpenArm hardware uses an identity motor↔joint mapping (openarm_teleop's
+`JointMapper` copies `joint[i] = motor[i]`, no sign flip, no offset), and the v1
+motor 0-pose is aligned to the v1 model 0-pose (confirmed by the working
+openarm_teleop bring-up). So IK's model angles already equal motor angles →
+`joint_offsets = 0` is correct, and no per-joint offset measurement is needed.
+(The v2 `openarm_cell.yaml` has non-zero offsets because the v2 *model* uses a
+different zero — not a hardware requirement that transfers to v1.) The one
+residual: the driver is additive, so a joint whose v1 *model* sign is opposite
+the motor would drive the wrong way and cannot be fixed by an offset — it would
+need the v1 MJCF axis flipped. Sim teleop can't catch this (no physical motor),
+so it gets a gentle first-motion check; if the v1 model was authored from the
+hardware joint definitions it is already correct.
 
 **3. `joint_limits`** are read directly from the v1 MJCF (model units), so those
 are set correctly for v1 up front.
 
-**Consequence:** `configs/openarm_v1.yaml` is a **calibration template**, not a
-"copy v2 and tune" artifact. The step-limited alignment ramp in the follower
-(`AlignState.step_limit`) makes first bring-up with zero offsets physically safe
-(the arm creeps, it does not jump).
+**Consequence:** `configs/openarm_v1.yaml` ships ready-to-run (`joint_offsets = 0`,
+limits from the MJCF), not as a measure-everything template. The step-limited
+alignment ramp in the follower (`AlignState.step_limit`) still makes first
+bring-up physically safe (the arm creeps, it does not jump), and the first-run
+sign check is the only manual step.
 
 ## Scope
 
@@ -95,7 +104,7 @@ are set correctly for v1 up front.
 - New local node `nodes/dora-openarm-gripper-adapter` (meters→radians gripper).
 - Vendored v1 driver config: `configs/openarm_v1.yaml` (calibration template).
 - Minimal `metadata_v1.yaml` for the UI panel (display-only).
-- README section + a documented on-hardware calibration procedure.
+- README section + documented first-run checks (sign + gripper).
 
 **Out of scope**
 
@@ -176,12 +185,11 @@ Layout mirrors the other small local nodes (`pyproject.toml`, `src/…/main.py`,
 hardware. This is the *only* place the v1 gripper units fix lives — no upstream
 or fork code changes.
 
-### 3. `configs/openarm_v1.yaml` (calibration template)
+### 3. `configs/openarm_v1.yaml`
 
 A driver config resolved by `openarm_driver.Config` as a repo-relative path from
 the dataflow working directory. Version-independent parts copied from the v2
-`openarm_cell.yaml`; v1-specific parts set from the v1 MJCF / left as calibration
-targets:
+`openarm_cell.yaml`; v1-specific parts set from the v1 MJCF. Ships ready-to-run:
 
 - `motor_config` — **identical** to v2 (standard 7-DOF + gripper build:
   `DM8009×2, DM4340×2, DM4310×4`; `send_ids 0x01–0x08`, `recv_ids 0x11–0x18`).
@@ -195,9 +203,10 @@ targets:
     (rad, from `openarm_cell.yaml` — encompasses the adapter's `[-0.785, 0]`).
   - left `joint1..7`: `[-3.490659, 1.396263]`, `[-3.316125, 0.174533]`, then the
     same j3–j7 as right; gripper `[-0.4, 1.047198]` (rad, encompasses `[0, 0.785]`).
-- `joint_offsets` — **all zeros** (8 per arm), with a prominent header comment:
-  *these must be calibrated on the real v1 arm before absolute positioning is
-  trusted.*
+- `joint_offsets` — **all zeros** (8 per arm). The hardware uses an identity
+  motor↔joint mapping and the v1 0-pose is aligned, so `0` is correct; set a
+  value only if the first-run check shows a joint's 0-pose is off (header
+  documents this).
 - `control_gains` (`kps`/`kds`), `joint_delta_position_limits`, `gripper_posforce`
   / `gripper_posforce_limits` — copied from `openarm_cell.yaml` as reasonable
   starting points (same DM motor family); flagged "verify on v1".
@@ -217,10 +226,10 @@ panel and is otherwise agnostic.
 ### 5. README
 
 A "VR teleoperation (OpenArm v1, real robot)" section: fetch the v1 model → bring
-up CAN (`can0`/`can1`) → **calibrate `configs/openarm_v1.yaml`** and the
-`gripper-adapter` open-radian (link the procedure) → `dora build
-dataflow-vr-v1.yaml` → `dora run`, with a safety note and the "squeeze the trigger
-to align" gesture called out.
+up CAN (`can0`/`can1`, standard OpenArm motor zeroing) → `dora build
+dataflow-vr-v1.yaml` → `dora run`, with a safety note, the "squeeze the trigger
+to align" gesture, and the first-run sign check called out (`joint_offsets = 0`
+is expected correct; tune the `gripper-adapter` open-radian by eye).
 
 ## Data Flow
 
@@ -236,31 +245,34 @@ Quest ─UDP▶ udp-receiver ─pose_{r,l}─▶ ik (v1 scene) ─position_{r,l}
 Followers read radians (via the adapter); the viewer reads IK meters directly.
 "Squeeze the trigger to align" (v2-identical interlock). Nothing is persisted.
 
-## On-hardware Calibration Procedure (documented in the config header / README)
+## First-run Checks (documented in the config header / README)
 
-Safety-gated, one joint at a time, with `joint_offsets` starting at 0:
+No offset calibration is expected — `joint_offsets = 0` given the identity
+motor↔joint mapping and the aligned v1 0-pose. The steps below are safety checks,
+not a measure-everything procedure:
 
-1. CAN up (`can0`/`can1`), arms powered, workspace clear, e-stop reachable.
+1. CAN up (`can0`/`can1`, standard OpenArm motor zeroing), arms powered,
+   workspace clear, e-stop reachable.
 2. `dora run dataflow-vr-v1.yaml`. **Squeeze a trigger** to arm the alignment
    ramp (the interlock blocks alignment until you do). Arms ramp (step-limited)
-   toward the commanded neutral. Watch for any joint moving the **wrong
-   direction** — that signals an inverted axis (config offsets cannot fix it; the
-   v1 MJCF joint axis must be flipped instead). Release the trigger / e-stop if so.
-3. Hold the Quest neutral; for each joint, read the follower `state.qpos` (model
-   frame) vs. the intended model angle and set `joint_offsets[i]` to align motor
-   zero to model zero. Re-run; iterate until neutral matches.
-4. Verify soft `joint_limits` are not tripped in the intended workspace.
-5. **Gripper:** with the arm calibrated, tune the `gripper-adapter`
-   `--out-open-{right,left}` so a released trigger fully opens the jaw and a
-   squeezed trigger closes it, without straining at the mechanical limit. Confirm
-   the sign per side (jaw opens, not closes, on release).
+   toward the commanded neutral. Confirm each joint moves the **right
+   direction** — a model/hardware sign flip looks fine in sim but reverses on
+   hardware; fix it by flipping that joint's axis in the v1 MJCF (an offset
+   cannot). Release the trigger / e-stop if a joint reverses.
+3. Only if a joint's 0-pose turns out misaligned, set its `joint_offsets[i]`
+   (compare follower `state.qpos` to the intended model angle). Not expected.
+4. **Gripper:** tune the `gripper-adapter` `--out-open-{right,left}` so a released
+   trigger fully opens the jaw and a squeezed trigger closes it, without straining
+   at the mechanical limit. Confirm the sign per side (jaw opens, not closes, on
+   release).
 
 ## Error / Edge Handling
 
-- **Wrong-direction joint** (inverted axis) → caught visually in step 2; fix the
-  v1 MJCF axis, not the config. Documented as the first calibration check.
-- **Uncalibrated offsets** → arm settles to a wrong-but-bounded neutral; the
-  step-limited ramp prevents jumps. Bounded by `joint_limits` from the MJCF.
+- **Wrong-direction joint** (inverted model/hardware sign) → caught on the first
+  motion (step 2); fix the v1 MJCF axis, not the config (an offset cannot flip a
+  sign). The only expected manual check.
+- **Misaligned 0-pose** (unexpected) → set that joint's `joint_offsets[i]`; the
+  step-limited ramp prevents jumps meanwhile. Bounded by `joint_limits`.
 - **CAN device mismatch** (`can0`/`can1` naming) → driver raises on init; documented
   as a config knob.
 - **No Quest connected** → pipeline builds, arms auto-start and hold the `home`
@@ -288,16 +300,17 @@ Safety-gated, one joint at a time, with `joint_offsets` starting at 0:
    `openarm_driver.Config("configs/openarm_v1.yaml")` parses and every getter
    (`get_joint_limits`, `get_joint_offsets`, `get_motor_types`, …) resolves for
    both arms; lengths are 8; gripper limit is the radian range.
-5. Hardware (manual, documented): run the calibration procedure; confirm the
-   squeeze-to-align interlock, arms tracking Quest motion, the gripper opening/
-   closing with the trigger, and the MuJoCo twin mirroring the command.
+5. Hardware (manual, documented): run the first-run checks; confirm the
+   squeeze-to-align interlock, each joint moving the right direction, arms
+   tracking Quest motion, the gripper opening/closing with the trigger, and the
+   MuJoCo twin mirroring the command.
 
 ## Follow-up (out of this iteration)
 
 - **Crank-slider-exact gripper mapping:** replace the adapter's linear meters→rad
   approximation with the true crank-slider inverse if open/close precision needs it.
-- Optional: promote calibrated `joint_offsets`, the `gripper-adapter` calibration,
-  and any v1 MJCF axis fixes upstream.
+- Optional: promote the tuned `gripper-adapter` open-radian and any v1 MJCF axis
+  fixes upstream.
 
 ## Rollout
 

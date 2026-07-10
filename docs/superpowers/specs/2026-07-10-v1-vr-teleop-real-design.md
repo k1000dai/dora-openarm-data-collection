@@ -102,20 +102,32 @@ gripper trigger wiring removed.
 | `quittable-tick-leader` | `dora-openarm-quitter` | `tick: millis/2`, `command: ui/command`. |
 | `udp-receiver` | `dora-openarm-vr` | `--host 0.0.0.0 --port 5006 --ee-correction-deg 180 0 0 --frame-offset 0.0 0 0.6` (v1 VR calibration, carried from the v1 sim flow). |
 | `ik` | `dora-openarm-ik` | `--xml models/openarm_mujoco_v1/scene.xml --keyframe home --mode bimanual --max-iters 10 --dt 0.1 --damping 0.1 --posture-cost 0.01 --lm-damping 0.01`. Inputs: `tick`, `target_{right,left}` (poses). **`trigger_{right,left}` are intentionally NOT wired** (gripper deferred). |
-| `follower-right` | `dora-openarm` | `--side right --align-trigger gripper --config configs/openarm_v1.yaml`. Inputs: `move_position: ik/position_right`, `command: ui/arm_command`. Output `status` → ui. |
-| `follower-left` | `dora-openarm` | `--side left --align-trigger gripper --config configs/openarm_v1.yaml`. Inputs: `move_position: ik/position_left`, `command: ui/arm_command`. Output `status` → ui. |
+| `follower-right` | `dora-openarm` | `--side right --config configs/openarm_v1.yaml` (no `--align-trigger`; see below). Inputs: `move_position: ik/position_right`, `command: ui/arm_command`. Output `status` → ui. |
+| `follower-left` | `dora-openarm` | `--side left --config configs/openarm_v1.yaml` (no `--align-trigger`; see below). Inputs: `move_position: ik/position_left`, `command: ui/arm_command`. Output `status` → ui. |
 | `mujoco-viewer` | `dora-openarm-mujoco` | `--xml models/openarm_mujoco_v1/scene.xml --keyframe home --viewer --debug-frames`. Fed by `ik/position_{l,r}` + receiver poses/joystick. Shows the *commanded* pose (digital twin). |
 
 Differences from `dataflow-vr.yaml` (v2): v1 `--xml`/VR calibration; `--config
 configs/openarm_v1.yaml`; no recorder/cameras/lifter; `trigger_*` not wired
-(gripper deferred); the `request_state` follower input is dropped (nothing
-consumes follower `state`, and it would force a CAN refresh every tick — the UI
-uses `follower/status`, and the viewer uses IK `position_*`).
+(gripper deferred); no `--align-trigger` (see below); the `request_state`
+follower input is dropped (nothing consumes follower `state`, and it would force
+a CAN refresh every tick — the UI uses `follower/status`, and the viewer uses IK
+`position_*`).
 
-`--align-trigger gripper` is kept for parity/safety; with the gripper inert it
-does not gate motion beyond the standard alignment ramp. (Confirm during
-implementation that an inert/zero gripper value does not stall alignment; if it
-does, drop `--align-trigger gripper` for v1.)
+**Alignment / `--align-trigger`.** The follower's soft-start ramp (`_align`) is
+used and is what makes zero-offset bring-up safe: it seeds `align_target` from the
+*actual* motor position, then steps toward the command by `clip(diff, ±0.001 rad)`
+per event, flipping to `ALIGNED` only once every joint is within `align_threshold`
+(0.1 rad), after which it tracks directly with a >0.1 rad divergence re-ramp. At
+`millis/2` that is ~0.5 rad/s — the arm creeps, never jumps.
+
+`--align-trigger gripper` is **dropped for v1**. Its gate compares the 8th
+(gripper) value against `±np.deg2rad(5)` (≈ ±0.0873), thresholds authored for
+v2's *revolute* gripper (`-0.785..0` rad). v1's gripper is *prismatic meters*
+(`[0, 0.044]`), so every value satisfies both `> -0.0873` (right) and `< 0.0873`
+(left): `is_gripping` is always True → the interlock never blocks and never
+functions (a permanently-armed no-op). It cannot work with a meters-valued
+gripper, so v1 runs plain alignment (`trigger=None`, gate skipped). Re-evaluate
+the interlock if/when the gripper follow-up gives v1 a radian-scaled gripper.
 
 ### 2. `configs/openarm_v1.yaml` (calibration template)
 

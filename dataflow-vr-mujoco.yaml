@@ -52,6 +52,7 @@ nodes:
       - joystick_y
       - button_a
       - button_b
+      - button_x
       - status
 
   - id: ik
@@ -82,6 +83,7 @@ nodes:
       pose_right: udp-receiver/pose_right
       pose_left: udp-receiver/pose_left
       joystick_y: udp-receiver/joystick_y
+      button_x: udp-receiver/button_x
     outputs:
       - status
       - arm_right_observation

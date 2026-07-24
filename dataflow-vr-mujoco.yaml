@@ -26,6 +26,9 @@ nodes:
       button_b:
         source: udp-receiver/button_b
         queue_size: 100
+      vr_receive_times:
+        source: udp-receiver/vr_receive_times
+        queue_size: 100
     outputs:
       - command
 
@@ -54,6 +57,7 @@ nodes:
       - button_b
       - button_x
       - status
+      - vr_receive_times
 
   - id: ik
     build: pip install -e nodes/dora-openarm-kinematics

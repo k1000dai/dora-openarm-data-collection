@@ -23,12 +23,12 @@ This repository provides data collection configurations for [OpenArm](https://op
 WebXR requires HTTPS, so a TLS certificate is needed. A self-signed certificate is enough; see the [dora-openarm-webxr setup instructions](https://github.com/enactic/dora-openarm-webxr#setup) for how to generate one. Then run:
 
 ```bash
-dora build dataflow-webxr-mujoco.yaml
+dora build dataflow-webxr-mujoco.yaml --uv
 ./nodes/dora-openarm-webxr/example/prepare_tls.sh $(hostname).local
-TLS_CERTIFICATE_FILE=./nodes/dora-openarm-webxr/example/server.crt TLS_KEY_FILE=./nodes/dora-openarm-webxr/example/server.key dora run dataflow-webxr-mujoco.yaml
+dora run dataflow-webxr-mujoco.yaml --uv
 ```
 
-Open http://localhost:8000/ on the local machine for the data collection UI, and open `https://${YOUR_HOST_NAME}:8443/` in the Web browser on your VR device to start teleoperation.
+Open http://localhost:8000/ on the local machine for the data collection UI, and open `https://${YOUR_HOST_NAME}:8443/` in the Web browser on your VR device (where `${HOSTNAME}` matches the value passed to `prepare_tls.sh`) to start teleoperation.
 
 ### Dummy configuration
 

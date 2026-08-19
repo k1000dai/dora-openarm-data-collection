@@ -29,6 +29,10 @@ nodes:
       vr_receive_times:
         source: udp-receiver/vr_receive_times
         queue_size: 100
+      arm_status_right:
+        source: follower-right/status
+      arm_status_left:
+        source: follower-left/status
     outputs:
       - command
       - arm_command

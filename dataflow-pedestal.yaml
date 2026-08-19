@@ -42,14 +42,16 @@ nodes:
     path: dora-openarm-quitter
     inputs:
       command: ui/command
-      tick: dora/timer/millis/2
+      tick: dora/timer/secs/1
     outputs:
       - tick
 
-  - id: udp-receiver
-    build: pip install -e nodes/dora-openarm-vr
-    path: dora-openarm-quest-receiver
-    args: "--host 0.0.0.0 --port 5006"
+  - id: webxr
+    build: pip install -e nodes/dora-openarm-webxr
+    path: dora-openarm-webxr
+    env:
+      TLS_CERTIFICATE_FILE: "nodes/dora-openarm-webxr/example/server.crt" # generate via nodes/dora-openarm-webxr/example/prepare_tls.sh
+      TLS_KEY_FILE: "nodes/dora-openarm-webxr/example/server.key" # generate via nodes/dora-openarm-webxr/example/prepare_tls.sh
     inputs:
       tick: quittable-tick-leader/tick
     outputs:
@@ -57,12 +59,17 @@ nodes:
       - trigger_right
       - pose_left
       - trigger_left
+      - joystick_x_right
+      - joystick_y_right
+      - joystick_x_left
       - joystick_y_left
       - button_a
       - button_b
       - button_x
+      - button_y
       - status
       - vr_receive_times
+      - pose_reference
 
   - id: ik
     build: pip install -e nodes/dora-openarm-kinematics

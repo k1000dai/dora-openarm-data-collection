@@ -21,13 +21,13 @@ nodes:
     inputs:
       tick: dora/timer/secs/1
       button_a:
-        source: udp-receiver/button_a
+        source: webxr/button_a
         queue_size: 100
       button_b:
-        source: udp-receiver/button_b
+        source: webxr/button_b
         queue_size: 100
       vr_receive_times:
-        source: udp-receiver/vr_receive_times
+        source: webxr/vr_receive_times
         queue_size: 100
       arm_status_right:
         source: follower-right/status
@@ -77,10 +77,10 @@ nodes:
     args: "--mode bimanual --max-iters 10 --dt 0.1 --damping 0.1 --posture-cost 0.01 --lm-damping 0.01"
     inputs:
       tick: quittable-tick-leader/tick
-      target_right: udp-receiver/pose_right
-      target_left: udp-receiver/pose_left
-      trigger_right: udp-receiver/trigger_right
-      trigger_left: udp-receiver/trigger_left
+      target_right: webxr/pose_right
+      target_left: webxr/pose_left
+      trigger_right: webxr/trigger_right
+      trigger_left: webxr/trigger_left
     outputs:
       - position_left
       - position_right
@@ -94,9 +94,9 @@ nodes:
     inputs:
       position_left: ik/position_left
       position_right: ik/position_right
-      pose_right: udp-receiver/pose_right
-      pose_left: udp-receiver/pose_left
-      joystick_y: udp-receiver/joystick_y_left
+      pose_right: webxr/pose_right
+      pose_left: webxr/pose_left
+      joystick_y: webxr/joystick_y_left
     outputs:
       - status
 

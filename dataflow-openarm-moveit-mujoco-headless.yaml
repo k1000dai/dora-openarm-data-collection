@@ -1,0 +1,80 @@
+# Copyright 2026 Enactic, Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Headless counterpart of dataflow-openarm-moveit-mujoco.yaml. It is useful
+# for CI, SSH sessions, and validating the Dora data path without a display.
+
+nodes:
+  - id: mujoco
+    build: pip install -e nodes/dora-openarm-mujoco
+    path: dora-openarm-mujoco
+    args: "--scene demo --keyframe home --ctrl"
+    inputs:
+      position_left: bridge/position_left
+      position_right: bridge/position_right
+    outputs:
+      - status
+      - arm_left_observation
+      - arm_right_observation
+
+  - id: bridge
+    build: pip install -e nodes/dora-openarm-moveit
+    path: dora-openarm-moveit-bridge
+    inputs:
+      arm_left_observation: mujoco/arm_left_observation
+      arm_right_observation: mujoco/arm_right_observation
+      joint_commands: trajectory_executor/joint_commands
+    outputs:
+      - status
+      - joint_positions
+      - position_left
+      - position_right
+
+  - id: planner
+    build: pip install -e nodes/dora-openarm-moveit
+    path: dora-openarm-moveit-planner
+    env:
+      ROBOT_CONFIG_MODULE: "dora_openarm_moveit.config.openarm"
+    inputs:
+      plan_request: demo/plan_request
+    outputs:
+      - trajectory
+      - plan_status
+
+  - id: trajectory_executor
+    build: pip install -e nodes/dora-openarm-moveit
+    path: dora-openarm-moveit-trajectory-executor
+    env:
+      ROBOT_CONFIG_MODULE: "dora_openarm_moveit.config.openarm"
+      EXEC_INTERP_SPEED: "0.25"
+    inputs:
+      trajectory: planner/trajectory
+      joint_positions: bridge/joint_positions
+      tick: dora/timer/millis/50
+    outputs:
+      - joint_commands
+      - execution_status
+
+  - id: demo
+    build: pip install -e nodes/dora-openarm-moveit
+    path: dora-openarm-moveit-demo
+    env:
+      ROBOT_CONFIG_MODULE: "dora_openarm_moveit.config.openarm"
+    inputs:
+      joint_positions: bridge/joint_positions
+      plan_status: planner/plan_status
+      trajectory: planner/trajectory
+      execution_status: trajectory_executor/execution_status
+    outputs:
+      - plan_request

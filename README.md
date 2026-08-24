@@ -34,6 +34,45 @@ Open http://localhost:8000/ on the local machine for the data collection UI, and
 
 [`dataflow_dummy.yaml`](dataflow_dummy.yaml) is a configuration that doesn't use real OpenArm. We can use this for testing a dataflow without real OpenArm.
 
+### dora-moveit2 configuration
+
+[`dataflow-openarm-moveit-mujoco.yaml`](dataflow-openarm-moveit-mujoco.yaml) is a
+dual-arm joint-space planning example using
+[`dora-moveit2`](https://github.com/dora-rs/dora-moveit2) and the OpenArm
+MuJoCo node. It keeps the OpenArm-specific simulation and converts its two
+8-value arm streams into the 16-value stream `DualMoveGroup` expects.
+
+```bash
+dora build dataflow-openarm-moveit-mujoco.yaml --uv
+dora run dataflow-openarm-moveit-mujoco.yaml --uv
+```
+
+For a display-free smoke test use
+[`dataflow-openarm-moveit-mujoco-headless.yaml`](dataflow-openarm-moveit-mujoco-headless.yaml).
+
+Planning is joint-space. Note that the upstream planner currently has
+collision checking disabled entirely, so MuJoCo remains the only source of
+truth for contact; see
+[the node's README](nodes/dora-openarm-moveit/README.md#known-limitations-of-the-upstream-planner).
+
+### MoveIt 3D GUI
+
+[`dataflow-openarm-moveit-gui-mujoco.yaml`](dataflow-openarm-moveit-gui-mujoco.yaml)
+adds a browser GUI that runs the same MuJoCo model in WASM. You place the
+end-effector goals with drag gizmos or the keyboard, press Plan to see the
+planned path, and press Execute to run it. It needs the `openarm-mujoco`
+submodule for its browser modules:
+
+```bash
+git submodule update --init nodes/openarm-mujoco
+dora build dataflow-openarm-moveit-gui-mujoco.yaml --uv
+dora run dataflow-openarm-moveit-gui-mujoco.yaml --uv
+```
+
+Open [http://127.0.0.1:8001/](http://127.0.0.1:8001/). A headless variant is
+available as
+[`dataflow-openarm-moveit-gui-mujoco-headless.yaml`](dataflow-openarm-moveit-gui-mujoco-headless.yaml).
+
 ## License
 
 Licensed under the Apache License 2.0. See [LICENSE](LICENSE) for details.

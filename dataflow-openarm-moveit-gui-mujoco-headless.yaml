@@ -1,0 +1,125 @@
+# Copyright 2026 Enactic, Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Headless counterpart of dataflow-openarm-moveit-gui-mujoco.yaml: no MuJoCo
+# viewer window, so it runs over SSH and in CI. The browser GUI is still
+# served at http://127.0.0.1:8001/ and is the only view of the scene.
+#
+# The GUI never plans on its own: it sends EEF poses to the kinematics node,
+# then a "plan" command, and the pose-goal node holds the planner's trajectory
+# until an "execute" command releases it to the executor.
+#
+# The GUI's --scene must match the mujoco node's --scene, or the ghost robot
+# will not line up with the simulation.
+
+nodes:
+  - id: mujoco
+    build: pip install -e nodes/dora-openarm-mujoco
+    path: dora-openarm-mujoco
+    args: "--scene demo --keyframe home --ctrl"
+    inputs:
+      position_left: bridge/position_left
+      position_right: bridge/position_right
+    outputs:
+      - status
+      - arm_left_observation
+      - arm_right_observation
+
+  - id: bridge
+    build: pip install -e nodes/dora-openarm-moveit
+    path: dora-openarm-moveit-bridge
+    inputs:
+      arm_left_observation: mujoco/arm_left_observation
+      arm_right_observation: mujoco/arm_right_observation
+      joint_commands: trajectory_executor/joint_commands
+    outputs:
+      - status
+      - joint_positions
+      - position_left
+      - position_right
+
+  - id: eef-gui
+    build: pip install -e nodes/dora-openarm-moveit
+    path: dora-openarm-moveit-gui
+    args: "--host 127.0.0.1 --port 8001 --scene demo"
+    inputs:
+      tick: dora/timer/millis/50
+      joint_positions: bridge/joint_positions
+      position_left: ik/position_left
+      position_right: ik/position_right
+      trajectory: planner/trajectory
+      gate_status: pose-goal/status
+      plan_status: planner/plan_status
+      execution_status: trajectory_executor/execution_status
+    outputs:
+      - status
+      - target_left
+      - target_right
+      - plan
+      - execute
+
+  - id: ik
+    build: pip install -e nodes/dora-openarm-kinematics
+    path: dora-openarm-ik
+    args: "--mode bimanual --max-iters 10 --dt 0.1 --damping 0.1 --posture-cost 0.01 --lm-damping 0.01"
+    inputs:
+      target_left: eef-gui/target_left
+      target_right: eef-gui/target_right
+    outputs:
+      - position_left
+      - position_right
+      - status
+
+  - id: pose-goal
+    build: pip install -e nodes/dora-openarm-moveit
+    path: dora-openarm-moveit-goal-planner
+    env:
+      ROBOT_CONFIG_MODULE: "dora_openarm_moveit.config.openarm"
+    inputs:
+      joint_positions: bridge/joint_positions
+      position_left: ik/position_left
+      position_right: ik/position_right
+      plan: eef-gui/plan
+      execute: eef-gui/execute
+      trajectory: planner/trajectory
+      execution_status: trajectory_executor/execution_status
+    outputs:
+      - status
+      - plan_request
+      - execute_trajectory
+
+  - id: planner
+    build: pip install -e nodes/dora-openarm-moveit
+    path: dora-openarm-moveit-planner
+    env:
+      ROBOT_CONFIG_MODULE: "dora_openarm_moveit.config.openarm"
+    inputs:
+      plan_request: pose-goal/plan_request
+    outputs:
+      - trajectory
+      - plan_status
+
+  - id: trajectory_executor
+    build: pip install -e nodes/dora-openarm-moveit
+    path: dora-openarm-moveit-trajectory-executor
+    env:
+      ROBOT_CONFIG_MODULE: "dora_openarm_moveit.config.openarm"
+      EXEC_INTERP_SPEED: "0.25"
+    inputs:
+      trajectory: pose-goal/execute_trajectory
+      joint_positions: bridge/joint_positions
+      tick: dora/timer/millis/50
+    outputs:
+      - joint_commands
+      - execution_status

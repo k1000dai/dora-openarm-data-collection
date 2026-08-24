@@ -43,3 +43,7 @@
 [submodule "nodes/dora-openarm-moveit"]
 	path = nodes/dora-openarm-moveit
 	url = git@github.com:k1000dai/dora-openarm-moveit.git
+[submodule "nodes/openarm-mujoco"]
+	path = nodes/openarm-mujoco
+	url = https://github.com/enactic/openarm_mujoco.git
+	branch = master

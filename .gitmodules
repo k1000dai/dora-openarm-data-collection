@@ -40,3 +40,6 @@
 [submodule "nodes/dora-openarm-webxr"]
 	path = nodes/dora-openarm-webxr
 	url = https://github.com/enactic/dora-openarm-webxr.git
+[submodule "nodes/dora-openarm-moveit"]
+	path = nodes/dora-openarm-moveit
+	url = git@github.com:k1000dai/dora-openarm-moveit.git

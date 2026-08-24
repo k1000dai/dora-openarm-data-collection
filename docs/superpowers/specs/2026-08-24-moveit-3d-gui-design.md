@@ -128,7 +128,15 @@ control.
 ### New submodule
 
 `nodes/openarm-mujoco` → `https://github.com/enactic/openarm_mujoco.git`,
-pinned at tag `2.1.0`. Only `web/*.js` is used from it.
+pinned at `5ba0271` on `master`. Only `web/*.js` is used from it.
+
+The pin is a master commit rather than the tag `2.1.0` this design first
+named: `web/` was added to the repository after that tag, so `2.1.0` has no
+browser modules at all. Because the models are served from the wheel and not
+from the submodule, the pin only decides which `web/*.js` is used, and model
+drift between the pin and the installed wheel is impossible by construction.
+The pinned tree's `v2/openarm_bimanual.xml` is in any case still the identical
+blob.
 
 Model assets are **not** served from the submodule. They are served from the
 installed `openarm-mujoco` wheel, located via
@@ -299,10 +307,60 @@ robot, Execute moves it, and a failed plan surfaces its message.
 
 - **CDN availability.** A machine without internet cannot load the page.
   Accepted; the fallback is the numeric form, which stays in the panel.
-- **Submodule pin drift.** If the installed wheel is upgraded past the
-  submodule pin, `web/*.js` and the model could disagree. Serving models from
-  the wheel keeps the model correct; the pin should be bumped alongside the
-  dependency.
+- **Submodule pin drift.** The pin is an untagged master commit, so bumping
+  it is a deliberate act with no release notes to read. Serving models from
+  the wheel keeps the model correct regardless; what can drift is `ik.js`'s
+  behaviour against a newer `@mujoco/mujoco`.
 - **WASM memory.** `model-vfs.js` deletes a half-built VFS on failure, but
   repeated scene switching in one page needs the existing `disposeScene()`
   path to be preserved when adapting `main.js`.
+
+
+## Addendum: goals that were not reached (2026-08-24)
+
+Reported after the first implementation: the robot sometimes did not get
+anywhere near the target pose. Three separate things were measured, two of
+them defects.
+
+**1. The IK never converged on a one-shot target.** The kinematics node runs
+differential IK, and a single solve moves the arms a bounded ~0.09 rad
+towards the target regardless of distance. One solve covered 99.5% of a
+0.04 m move but 6.5% of a 0.176 m one, so the plan goal — which *is* that
+solve's output — sat 117 mm short of the request. Every other dataflow in
+this repository feeds the node from a continuously streaming pose source, so
+it converges there; this GUI was the first consumer to send one discrete
+target. Fixed by repeating the target until consecutive solutions stop
+changing.
+
+Detecting "stopped changing" needed a second condition: the node keeps
+reporting its last solution, so results arriving right after a new target
+still answer the *previous* one and are identical to each other. Counting
+those as convergence made the pump settle in the minimum three ticks on every
+goal after the first. A side must now be seen moving once before its
+stillness counts.
+
+**2. The executor never commands the last waypoint.** On the tick that
+finishes a trajectory it sets `is_executing = False` and returns the measured
+joint state, which still lags the command, then holds there. Against a simple
+lag plant the goal was never commanded at all and 34.6% of the move was lost.
+Fixed by dwelling on the goal (`DWELL_WAYPOINTS`), so what the executor
+discards is a duplicate. Measured gain in MuJoCo is smaller than the
+synthetic case suggested — 23.9 mm to 21.2 mm mean — because the actuators
+are fast relative to a 200 ms waypoint.
+
+**3. Steady-state droop, which is not a defect.** The remainder, 5-20 mm, is
+the MuJoCo position actuators holding each joint at a static offset under
+gravity; the MJCF has no gravity compensation and the MuJoCo node has no
+option for it. It is visible at startup before anything is planned. The GUI
+now reports it as "reached: N mm from plan goal" so it does not read as a
+planning failure.
+
+Measured end to end over a seven-goal sequence, worst total error went from
+172 mm to 18 mm, with IK error 0.0 mm on every goal.
+
+**A note on the measurement.** The first "after the fix" numbers looked worse
+than the baseline. That was the harness, not the system: it waited on the
+gate's state field, which still held `done` from the previous goal, so it
+broke out immediately and compared the *previous* plan against the new
+target. Waiting for the trajectory id to change fixed it. Numbers taken
+before that fix should be disregarded.
